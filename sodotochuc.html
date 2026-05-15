@@ -1,1 +1,660 @@
 
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sơ đồ tổ chức</title>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f0eff0;
+  --card-bg: #ffffff;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --border: #e2e0db;
+  --line: #c8c6c2;
+  --font: 'Be Vietnam Pro', sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  min-height: 100vh;
+  padding: 40px 0 80px;
+  color: var(--text-primary);
+  overflow-x: hidden;
+}
+
+h1.chart-title {
+  text-align: center; font-size: 22px; font-weight: 700;
+  letter-spacing: -0.4px; margin-bottom: 5px;
+}
+p.chart-subtitle {
+  text-align: center; font-size: 13px;
+  color: var(--text-secondary); margin-bottom: 48px;
+}
+
+/* ═══════════════════════════════
+   TREE LAYOUT
+   ─────────────────────────────
+   Cách tiếp cận mới: toàn bộ cây
+   nằm trong một container có
+   position:relative. Đường kẻ được
+   vẽ bằng SVG tuyệt đối bên trên.
+═══════════════════════════════ */
+
+#tree-root {
+  position: relative;
+  display: inline-block; /* co lại bằng content */
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Mỗi "level" là flex row */
+.level {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: flex-start;
+  position: relative;
+}
+
+/* Mỗi "col" là flex column chứa node + children-row */
+.col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  padding: 0 10px; /* khoảng cách ngang giữa các col */
+}
+
+/* NODE CARD */
+.node-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.18s, transform 0.18s;
+  animation: fadeUp 0.4s ease both;
+  min-width: 88px;
+  z-index: 2; /* above SVG lines */
+}
+.node-card:hover  { background: rgba(0,0,0,0.045); transform: translateY(-3px); }
+.node-card.active { background: rgba(0,0,0,0.07); }
+
+/* AVATAR */
+.avatar {
+  width: 62px; height: 62px;
+  border-radius: 50%;
+  border: 3px solid #ccc;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+  transition: transform 0.18s, box-shadow 0.18s;
+  background: #e8e6e1;
+  display: flex; align-items: center; justify-content: center;
+}
+.node-card:hover .avatar {
+  transform: scale(1.07);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.16);
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar svg { width: 44px; height: 44px; }
+.avatar-initials { font-size: 17px; font-weight: 700; color: #fff; text-transform: uppercase; }
+
+.node-name  { font-size: 12px; font-weight: 600; text-align: center; max-width: 90px; line-height: 1.3; color: var(--text-primary); }
+.node-title { font-size: 10px; text-align: center; max-width: 90px; line-height: 1.3; color: var(--text-secondary); }
+
+/* Smaller for depth 3+ */
+.col.d3 .avatar, .col.d4 .avatar { width: 50px; height: 50px; }
+.col.d3 .avatar svg, .col.d4 .avatar svg { width: 34px; height: 34px; }
+.col.d3 .node-name, .col.d4 .node-name { font-size: 11px; max-width: 76px; }
+.col.d3 .node-title, .col.d4 .node-title { font-size: 9.5px; max-width: 76px; }
+
+/* SVG connector overlay */
+#connector-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+}
+#connector-svg path, #connector-svg line {
+  stroke: var(--line);
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+}
+
+/* Animations */
+@keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
+
+/* ═══════════════════════════════
+   POPUP
+═══════════════════════════════ */
+#popup-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(12,12,10,0.48);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.22s ease;
+  backdrop-filter: blur(5px);
+}
+#popup-overlay.open { opacity: 1; pointer-events: all; }
+
+#popup-panel {
+  background: var(--card-bg); border-radius: 22px;
+  width: 100%; max-width: 490px; max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 28px 70px rgba(0,0,0,0.20);
+  transform: translateY(22px) scale(0.96); opacity: 0;
+  transition: transform 0.30s cubic-bezier(.22,1,.36,1), opacity 0.24s ease;
+  position: relative;
+}
+#popup-overlay.open #popup-panel { transform: translateY(0) scale(1); opacity: 1; }
+
+#popup-banner {
+  height: 100px; border-radius: 22px 22px 0 0;
+  position: relative; flex-shrink: 0;
+  /* NO overflow:hidden — avatar phải nhô ra ngoài */
+}
+/* clip chỉ áp dụng cho phần nền, không clip avatar */
+#popup-banner-bg {
+  position: absolute; inset: 0;
+  border-radius: 22px 22px 0 0;
+  overflow: hidden;
+}
+#popup-banner-dots {
+  position: absolute; inset: 0; opacity: 0.13;
+  background-image: radial-gradient(circle, #fff 1.5px, transparent 1.5px);
+  background-size: 22px 22px;
+}
+#popup-banner-wave {
+  position: absolute; bottom: -1px; left: 0; right: 0;
+}
+
+#popup-avatar-wrap {
+  position: absolute; bottom: -38px; left: 30px;
+  width: 76px; height: 76px; border-radius: 50%;
+  border: 4px solid #fff; background: #f0ede8;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.15);
+  z-index: 10;
+}
+#popup-avatar-wrap img { width: 100%; height: 100%; object-fit: cover; }
+#popup-avatar-wrap svg { width: 54px; height: 54px; }
+
+#popup-close {
+  position: absolute; top: 13px; right: 13px;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(255,255,255,0.90); border: none; cursor: pointer;
+  font-size: 15px; color: #333;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.14s; line-height: 1;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+}
+#popup-close:hover { background: #fff; }
+
+#popup-body { padding: 52px 30px 30px; }
+#popup-person-name  { font-size: 21px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 3px; }
+#popup-person-title { font-size: 13px; color: var(--text-secondary); margin-bottom: 7px; }
+#popup-dept-badge {
+  display: inline-block; font-size: 11px; font-weight: 600;
+  padding: 3px 12px; border-radius: 20px; color: #fff; margin-bottom: 22px;
+  letter-spacing: 0.2px;
+}
+
+#popup-content { font-size: 13.5px; line-height: 1.78; color: var(--text-primary); }
+
+#popup-content h3 {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--text-secondary);
+  margin: 20px 0 9px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+#popup-content h3:first-child { margin-top: 0; }
+#popup-content p  { margin-bottom: 8px; }
+#popup-content ul { padding-left: 18px; margin-bottom: 10px; }
+#popup-content ul li { margin-bottom: 5px; }
+
+#popup-content .kv-grid {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: 8px 20px; margin-bottom: 14px;
+}
+#popup-content .kv-label { font-size: 12px; color: var(--text-secondary); font-weight: 500; white-space: nowrap; padding-top: 1px; }
+#popup-content .kv-value { font-size: 13px; }
+
+#popup-content .tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+#popup-content .tag { font-size: 11.5px; padding: 4px 11px; border-radius: 20px; background: #f0ede8; color: #555; font-weight: 500; }
+
+#popup-content .progress-row { margin-bottom: 10px; }
+#popup-content .progress-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px; }
+#popup-content .progress-bar  { height: 6px; border-radius: 3px; background: #eee; overflow: hidden; }
+#popup-content .progress-fill { height: 100%; border-radius: 3px; transition: width 0.75s cubic-bezier(.22,1,.36,1); }
+
+#popup-content .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px,1fr)); gap: 10px; margin-bottom: 14px; }
+#popup-content .stat-card { background: #f7f6f2; border-radius: 12px; padding: 14px 12px; text-align: center; }
+#popup-content .stat-num  { font-size: 21px; font-weight: 700; line-height: 1.1; }
+#popup-content .stat-lbl  { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+#popup-content .divider   { border: none; border-top: 1px solid var(--border); margin: 15px 0; }
+
+@media (max-width: 600px) {
+  #popup-panel { border-radius: 18px; max-height: 92vh; }
+  #popup-body  { padding: 46px 18px 22px; }
+  .col { padding: 0 5px; }
+}
+</style>
+</head>
+<body>
+
+<h1 class="chart-title"  id="chart-title">Sơ đồ tổ chức</h1>
+<p  class="chart-subtitle" id="chart-subtitle"></p>
+
+<div id="tree-root">
+  <!-- filled by JS -->
+  <svg id="connector-svg" aria-hidden="true"></svg>
+</div>
+
+<!-- Popup -->
+<div id="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="popup-person-name">
+  <div id="popup-panel">
+    <div id="popup-banner">
+      <div id="popup-banner-dots"></div>
+      <svg id="popup-banner-wave" viewBox="0 0 490 28" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M0 20 Q120 0 245 14 Q370 28 490 8 L490 28 L0 28 Z" fill="white" opacity="0.12"/>
+      </svg>
+      <div id="popup-avatar-wrap"></div>
+      <button id="popup-close" aria-label="Đóng">✕</button>
+    </div>
+    <div id="popup-body">
+      <div id="popup-person-name"></div>
+      <div id="popup-person-title"></div>
+      <span id="popup-dept-badge"></span>
+      <div id="popup-content"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   DỮ LIỆU — chỉnh sửa ở đây
+   photo: URL ảnh thật (ưu tiên). Nếu không có thì dùng gender: "male"|"female"
+===================================================================== */
+const ORG_DATA = {
+  title:    "Sơ đồ tổ chức công ty",
+  subtitle: "Cập nhật Q2 · 2025",
+  root: {
+    id:"ceo", name:"Nguyễn Văn An", title:"Giám đốc điều hành (CEO)",
+    dept:"Ban lãnh đạo", color:"#6b4f35",
+    photo: "https://randomuser.me/api/portraits/men/32.jpg",
+    popup:{ html:`
+      <div class="stat-row">
+        <div class="stat-card"><div class="stat-num" style="color:#6b4f35">18+</div><div class="stat-lbl">Năm kinh nghiệm</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:#6b4f35">120</div><div class="stat-lbl">Nhân sự</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:#6b4f35">2015</div><div class="stat-lbl">Gia nhập</div></div>
+      </div>
+      <h3>Liên hệ</h3>
+      <div class="kv-grid">
+        <span class="kv-label">Email</span>      <span class="kv-value">an.nguyen@company.vn</span>
+        <span class="kv-label">Điện thoại</span> <span class="kv-value">0912 345 678</span>
+        <span class="kv-label">Văn phòng</span>  <span class="kv-value">Tầng 12 — TP.HCM</span>
+        <span class="kv-label">Học vấn</span>    <span class="kv-value">MBA · RMIT University</span>
+      </div>
+      <h3>Giới thiệu</h3>
+      <p>Hơn 18 năm trong lĩnh vực công nghệ và quản trị doanh nghiệp. Từng giữ vị trí COO tại TechViet Group trước khi sáng lập công ty vào 2015.</p>
+      <h3>Năng lực lãnh đạo</h3>
+      <div class="progress-row"><div class="progress-label"><span>Chiến lược</span><span>95%</span></div><div class="progress-bar"><div class="progress-fill" style="width:95%;background:#6b4f35"></div></div></div>
+      <div class="progress-row"><div class="progress-label"><span>Tài chính</span><span>88%</span></div><div class="progress-bar"><div class="progress-fill" style="width:88%;background:#6b4f35"></div></div></div>
+      <div class="progress-row"><div class="progress-label"><span>Nhân sự</span><span>92%</span></div><div class="progress-bar"><div class="progress-fill" style="width:92%;background:#6b4f35"></div></div></div>
+    `},
+    children:[
+      {
+        id:"vp-sales", name:"Trần Thị Bình", title:"VP Kinh doanh",
+        dept:"Kinh doanh", color:"#c94a38",
+        photo:"https://randomuser.me/api/portraits/women/44.jpg",
+        popup:{ html:`
+          <div class="stat-row">
+            <div class="stat-card"><div class="stat-num" style="color:#c94a38">112%</div><div class="stat-lbl">KPI Q2</div></div>
+            <div class="stat-card"><div class="stat-num" style="color:#c94a38">14</div><div class="stat-lbl">Nhân sự</div></div>
+            <div class="stat-card"><div class="stat-num" style="color:#c94a38">2017</div><div class="stat-lbl">Gia nhập</div></div>
+          </div>
+          <h3>Liên hệ</h3>
+          <div class="kv-grid">
+            <span class="kv-label">Email</span>      <span class="kv-value">binh.tran@company.vn</span>
+            <span class="kv-label">Điện thoại</span> <span class="kv-value">0908 111 222</span>
+            <span class="kv-label">Khu vực</span>    <span class="kv-value">Miền Nam + ASEAN</span>
+          </div>
+          <h3>Phụ trách</h3>
+          <div class="tag-row">
+            <span class="tag">Sales B2B</span><span class="tag">Marketing</span><span class="tag">CRM</span><span class="tag">Đối tác</span>
+          </div>
+          <h3>Doanh số 2025</h3>
+          <div class="progress-row"><div class="progress-label"><span>Q1</span><span>108%</span></div><div class="progress-bar"><div class="progress-fill" style="width:100%;background:#c94a38"></div></div></div>
+          <div class="progress-row"><div class="progress-label"><span>Q2</span><span>112%</span></div><div class="progress-bar"><div class="progress-fill" style="width:100%;background:#c94a38"></div></div></div>
+        `},
+        children:[
+          {
+            id:"sales-mgr", name:"Hoàng Văn Cường", title:"TP Sales",
+            dept:"Kinh doanh", color:"#d4880a",
+            photo:"https://randomuser.me/api/portraits/men/46.jpg",
+            popup:{ html:`
+              <div class="kv-grid">
+                <span class="kv-label">Email</span>    <span class="kv-value">cuong.hoang@company.vn</span>
+                <span class="kv-label">Nhân sự</span>  <span class="kv-value">8 nhân viên</span>
+                <span class="kv-label">Gia nhập</span> <span class="kv-value">01/2019</span>
+              </div>
+              <hr class="divider">
+              <h3>Mục tiêu tháng này</h3>
+              <p>Mở rộng 5 KH mới khu vực miền Trung, duy trì tỷ lệ giữ chân ≥ 90%.</p>
+              <div class="tag-row"><span class="tag">Đàm phán</span><span class="tag">B2B Sales</span><span class="tag">Salesforce</span></div>
+            `},
+            children:[
+              { id:"sales-1", name:"Đặng Minh Dũng", title:"NV Sales", color:"#d4880a",
+                photo:"https://randomuser.me/api/portraits/men/55.jpg",
+                popup:{html:`<div class="kv-grid"><span class="kv-label">Email</span><span class="kv-value">dung.dang@company.vn</span><span class="kv-label">Khu vực</span><span class="kv-value">HCM — Q1, Q3, Q7</span><span class="kv-label">Gia nhập</span><span class="kv-value">03/2022</span></div><hr class="divider"><p>Tháng trước đạt <strong>124%</strong> chỉ tiêu cá nhân.</p>`}},
+              { id:"sales-2", name:"Ngô Thị Én", title:"NV Sales", color:"#d4880a",
+                photo:"https://randomuser.me/api/portraits/women/63.jpg",
+                popup:{html:`<div class="kv-grid"><span class="kv-label">Email</span><span class="kv-value">en.ngo@company.vn</span><span class="kv-label">Khu vực</span><span class="kv-value">Bình Dương · Đồng Nai</span><span class="kv-label">Gia nhập</span><span class="kv-value">07/2023</span></div><hr class="divider"><p>Nhân viên tiềm năng Q2, tập trung mảng sản xuất Đông Nam Bộ.</p>`}}
+            ]
+          },
+          {
+            id:"mkt-mgr", name:"Vũ Thị Hoa", title:"TP Marketing",
+            dept:"Marketing", color:"#d4880a",
+            photo:"https://randomuser.me/api/portraits/women/68.jpg",
+            popup:{ html:`
+              <div class="stat-row">
+                <div class="stat-card"><div class="stat-num" style="color:#d4880a">6</div><div class="stat-lbl">Nhân sự</div></div>
+                <div class="stat-card"><div class="stat-num" style="color:#d4880a">850M</div><div class="stat-lbl">Ngân sách Q2</div></div>
+                <div class="stat-card"><div class="stat-num" style="color:#d4880a">4.8x</div><div class="stat-lbl">ROAS</div></div>
+              </div>
+              <div class="tag-row"><span class="tag">Digital Ads</span><span class="tag">Content</span><span class="tag">SEO/SEM</span><span class="tag">Events</span></div>
+              <h3>Campaign đang chạy</h3>
+              <ul><li>Summer Sale 2025 — đang triển khai</li><li>Brand Awareness Q3 — chuẩn bị</li></ul>
+            `},
+            children:[
+              { id:"mkt-1", name:"Lâm Quốc Phong", title:"NV Marketing", color:"#d4880a",
+                photo:"https://randomuser.me/api/portraits/men/72.jpg",
+                popup:{html:`<div class="kv-grid"><span class="kv-label">Email</span><span class="kv-value">phong.lam@company.vn</span><span class="kv-label">Chuyên môn</span><span class="kv-value">Digital Ads · Analytics</span></div><div class="tag-row"><span class="tag">Google Ads</span><span class="tag">Meta Ads</span><span class="tag">GA4</span></div>`}},
+              { id:"mkt-2", name:"Phùng Thị Giang", title:"NV Design", color:"#d4880a",
+                photo:"https://randomuser.me/api/portraits/women/79.jpg",
+                popup:{html:`<div class="kv-grid"><span class="kv-label">Email</span><span class="kv-value">giang.phung@company.vn</span><span class="kv-label">Công cụ</span><span class="kv-value">Figma · Illustrator · AE</span></div>`}}
+            ]
+          }
+        ]
+      },
+      {
+        id:"vp-tech", name:"Lê Văn Chính", title:"VP Kỹ thuật (CTO)",
+        dept:"Công nghệ", color:"#1e9e8a",
+        photo:"https://randomuser.me/api/portraits/men/52.jpg",
+        popup:{ html:`
+          <div class="stat-row">
+            <div class="stat-card"><div class="stat-num" style="color:#1e9e8a">24</div><div class="stat-lbl">Kỹ sư</div></div>
+            <div class="stat-card"><div class="stat-num" style="color:#1e9e8a">99.97%</div><div class="stat-lbl">Uptime SLA</div></div>
+            <div class="stat-card"><div class="stat-num" style="color:#1e9e8a">2016</div><div class="stat-lbl">Gia nhập</div></div>
+          </div>
+          <div class="tag-row"><span class="tag">React</span><span class="tag">Node.js</span><span class="tag">Go</span><span class="tag">PostgreSQL</span><span class="tag">AWS</span><span class="tag">K8s</span></div>
+          <h3>Dự án trọng điểm 2025</h3>
+          <ul><li>Migration sang microservices (Q3)</li><li>AI chatbot CSKH (Q4)</li><li>Nâng cấp CI/CD pipeline</li></ul>
+          <div class="progress-row"><div class="progress-label"><span>Uptime SLA</span><span>99.97%</span></div><div class="progress-bar"><div class="progress-fill" style="width:99%;background:#1e9e8a"></div></div></div>
+          <div class="progress-row"><div class="progress-label"><span>Sprint velocity</span><span>87%</span></div><div class="progress-bar"><div class="progress-fill" style="width:87%;background:#1e9e8a"></div></div></div>
+        `},
+        children:[
+          { id:"fe-lead", name:"Đinh Thị Hằng", title:"Lead Frontend", dept:"Kỹ thuật", color:"#1e9e8a",
+            photo:"https://randomuser.me/api/portraits/women/33.jpg",
+            popup:{html:`<div class="kv-grid"><span class="kv-label">Email</span><span class="kv-value">hang.dinh@company.vn</span><span class="kv-label">Team</span><span class="kv-value">7 kỹ sư</span></div><div class="tag-row"><span class="tag">React 19</span><span class="tag">TypeScript</span><span class="tag">Next.js</span><span class="tag">Storybook</span></div><p>Tác giả Design System nội bộ với 80+ components.</p>`}},
+          { id:"be-lead", name:"Bùi Văn Ích", title:"Lead Backend", dept:"Kỹ thuật", color:"#1e9e8a",
+            photo:"https://randomuser.me/api/portraits/men/61.jpg",
+            popup:{html:`<div class="stat-row"><div class="stat-card"><div class="stat-num" style="color:#1e9e8a">2M+</div><div class="stat-lbl">Request/ngày</div></div><div class="stat-card"><div class="stat-num" style="color:#1e9e8a">&lt;120ms</div><div class="stat-lbl">P99 latency</div></div></div><div class="tag-row"><span class="tag">Go</span><span class="tag">gRPC</span><span class="tag">Kafka</span><span class="tag">Redis</span></div>`}},
+          { id:"qa-lead", name:"Lý Thị Kim", title:"Lead QA", dept:"Kỹ thuật", color:"#1e9e8a",
+            photo:"https://randomuser.me/api/portraits/women/57.jpg",
+            popup:{html:`<div class="kv-grid"><span class="kv-label">Email</span><span class="kv-value">kim.ly@company.vn</span><span class="kv-label">Team</span><span class="kv-value">5 người</span></div><div class="tag-row"><span class="tag">Playwright</span><span class="tag">Performance</span><span class="tag">Security</span></div><div class="progress-row"><div class="progress-label"><span>Test coverage</span><span>84%</span></div><div class="progress-bar"><div class="progress-fill" style="width:84%;background:#1e9e8a"></div></div></div>`}}
+        ]
+      },
+      {
+        id:"vp-fin", name:"Phạm Thị Dung", title:"VP Tài chính (CFO)",
+        dept:"Tài chính", color:"#c94a38",
+        photo:"https://randomuser.me/api/portraits/women/26.jpg",
+        popup:{ html:`
+          <div class="stat-row">
+            <div class="stat-card"><div class="stat-num" style="color:#c94a38">48.2B</div><div class="stat-lbl">Doanh thu Q2</div></div>
+            <div class="stat-card"><div class="stat-num" style="color:#22a06b">+18%</div><div class="stat-lbl">So với Q1</div></div>
+          </div>
+          <div class="kv-grid">
+            <span class="kv-label">Email</span>      <span class="kv-value">dung.pham@company.vn</span>
+            <span class="kv-label">Chứng chỉ</span>  <span class="kv-value">CPA · CFA Level II</span>
+          </div>
+          <div class="tag-row"><span class="tag">Kế toán</span><span class="tag">Kiểm toán</span><span class="tag">Ngân quỹ</span><span class="tag">Thuế</span></div>
+        `},
+        children:[
+          { id:"acct-mgr", name:"Mai Văn Lợi", title:"TP Kế toán", dept:"Tài chính", color:"#3d9e52",
+            photo:"https://randomuser.me/api/portraits/men/83.jpg",
+            popup:{html:`<div class="kv-grid"><span class="kv-label">Email</span><span class="kv-value">loi.mai@company.vn</span><span class="kv-label">Chứng chỉ</span><span class="kv-value">ACCA · Đại lý thuế</span></div><ul><li>Kế toán tổng hợp & BCTC</li><li>Kê khai thuế VAT, TNDN</li></ul>`}},
+          { id:"audit-mgr", name:"Cao Thị Mỹ", title:"TP Kiểm toán", dept:"Tài chính", color:"#3d9e52",
+            photo:"https://randomuser.me/api/portraits/women/89.jpg",
+            popup:{html:`<div class="kv-grid"><span class="kv-label">Email</span><span class="kv-value">my.cao@company.vn</span><span class="kv-label">Chứng chỉ</span><span class="kv-value">CIA · ISO 9001 Auditor</span></div><ul><li>Kiểm toán nội bộ hàng quý</li><li>Đánh giá rủi ro & tuân thủ</li><li>Báo cáo lên HĐQT</li></ul>`}}
+        ]
+      }
+    ]
+  }
+};
+
+/* =====================================================================
+   AVATAR HTML
+===================================================================== */
+function svgAvatar(gender) {
+  const f = gender === 'female';
+  const skin = f ? '#d4a870' : '#c09060';
+  const shirt = f ? '#7a3a6a' : '#3a3a5a';
+  const hair  = f ? '#4a3020' : null;
+  return `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="20" cy="13" r="7" fill="${skin}"/>
+    ${hair ? `<path d="M13 11 Q13 3 20 3 Q27 3 27 11 Q27 5 20 5 Q13 5 13 11z" fill="${hair}"/>` : ''}
+    <path d="M8 38 Q8 24 20 22 Q32 24 32 38z" fill="${skin}"/>
+    <path d="M13 27 l7 4 l7-4 v11 h-14z" fill="${shirt}" opacity="0.75"/>
+  </svg>`;
+}
+function avatarHTML(node) {
+  if (node.photo)  return `<img src="${node.photo}" alt="${node.name}" loading="lazy">`;
+  if (node.gender) return svgAvatar(node.gender);
+  const initials = node.name.split(' ').map(w => w[0]).slice(-2).join('');
+  return `<span class="avatar-initials">${initials}</span>`;
+}
+function initColor(name) {
+  const cols = ['#c94a38','#1e9e8a','#d4880a','#4a90d9','#3d9e52','#9b6bbf','#d46a9b'];
+  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xfffffff;
+  return cols[h % cols.length];
+}
+
+/* =====================================================================
+   BUILD DOM TREE (không có SVG connector, chỉ layout)
+   Mỗi node trả về { el (col div), cardEl }
+   el.cardEl dùng để đo vị trí sau khi layout xong
+===================================================================== */
+function buildCol(node, depth) {
+  const col = document.createElement('div');
+  col.className = `col d${depth}`;
+  col.dataset.id = node.id;
+
+  /* --- card --- */
+  const card = document.createElement('div');
+  card.className = 'node-card';
+  const av = document.createElement('div');
+  av.className = 'avatar';
+  av.style.borderColor = node.color || initColor(node.name);
+  if (!node.photo && !node.gender) av.style.background = node.color || initColor(node.name);
+  av.innerHTML = avatarHTML(node);
+  const nm = document.createElement('div'); nm.className = 'node-name';  nm.textContent = node.name;
+  const ti = document.createElement('div'); ti.className = 'node-title'; ti.textContent = node.title;
+  card.appendChild(av); card.appendChild(nm); card.appendChild(ti);
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.node-card.active').forEach(c => c.classList.remove('active'));
+    card.classList.add('active');
+    openPopup(node);
+  });
+  col.appendChild(card);
+  col._card = card; /* reference for measuring */
+
+  /* --- children row --- */
+  if (node.children && node.children.length) {
+    const row = document.createElement('div');
+    row.className = 'level';
+    node.children.forEach(child => {
+      row.appendChild(buildCol(child, depth + 1));
+    });
+    col.appendChild(row);
+    col._childRow = row;
+  }
+
+  return col;
+}
+
+/* =====================================================================
+   DRAW CONNECTORS via SVG — called after layout is complete
+   Strategy:
+     For each parent node that has children:
+       1. Vertical line: bottom-center of parent card → midpoint Y
+       2. Horizontal line: from first child center X → last child center X at midpoint Y
+       3. Vertical drops: from midpoint Y → top-center of each child card
+===================================================================== */
+function drawConnectors(rootEl, svgEl) {
+  const svgRect = svgEl.getBoundingClientRect();
+  const paths   = [];
+
+  function toSvg(domRect) {
+    return {
+      x: domRect.left - svgRect.left + domRect.width  / 2,
+      y: domRect.top  - svgRect.top  + domRect.height / 2,
+      top:    domRect.top  - svgRect.top,
+      bottom: domRect.top  - svgRect.top  + domRect.height,
+      left:   domRect.left - svgRect.left,
+      right:  domRect.left - svgRect.left + domRect.width,
+      cx:     domRect.left - svgRect.left + domRect.width / 2,
+      cy:     domRect.top  - svgRect.top  + domRect.height / 2,
+    };
+  }
+
+  function walk(colEl) {
+    if (!colEl._childRow) return;
+
+    const parentCard = colEl._card;
+    const pRect = toSvg(parentCard.getBoundingClientRect());
+
+    /* collect child cards */
+    const childCols = Array.from(colEl._childRow.children);
+    const childRects = childCols.map(cc => toSvg(cc._card.getBoundingClientRect()));
+
+    const GAP = 20; /* vertical gap between parent bottom and horizontal bar */
+    const parentBottom = pRect.bottom;
+    const midY = parentBottom + GAP;
+
+    /* 1. Vertical drop from parent */
+    paths.push(`M ${pRect.cx} ${parentBottom} L ${pRect.cx} ${midY}`);
+
+    if (childCols.length === 1) {
+      /* straight line to single child */
+      const cR = childRects[0];
+      paths.push(`M ${cR.cx} ${midY} L ${cR.cx} ${cR.top}`);
+    } else {
+      /* horizontal bar */
+      const leftX  = childRects[0].cx;
+      const rightX = childRects[childRects.length - 1].cx;
+      paths.push(`M ${leftX} ${midY} L ${rightX} ${midY}`);
+      /* vertical drops to each child */
+      childRects.forEach(cR => {
+        paths.push(`M ${cR.cx} ${midY} L ${cR.cx} ${cR.top}`);
+      });
+    }
+
+    /* recurse */
+    childCols.forEach(cc => walk(cc));
+  }
+
+  walk(rootEl);
+
+  svgEl.innerHTML = `<path d="${paths.join(' ')}" stroke="var(--line)" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+}
+
+/* =====================================================================
+   POPUP
+===================================================================== */
+const overlay = document.getElementById('popup-overlay');
+function openPopup(node) {
+  const color = node.color || initColor(node.name);
+  document.getElementById('popup-banner').style.background = color;
+  const avWrap = document.getElementById('popup-avatar-wrap');
+  avWrap.style.background = node.photo ? '#000' : '#f0ede8';
+  avWrap.innerHTML = avatarHTML(node);
+  document.getElementById('popup-person-name').textContent  = node.name;
+  document.getElementById('popup-person-title').textContent = node.title;
+  const badge = document.getElementById('popup-dept-badge');
+  if (node.dept) { badge.textContent = node.dept; badge.style.background = color; badge.style.display = 'inline-block'; }
+  else badge.style.display = 'none';
+  const content = document.getElementById('popup-content');
+  content.innerHTML = (node.popup && node.popup.html)
+    ? node.popup.html
+    : '<p style="color:var(--text-secondary)">Chưa có thông tin chi tiết.</p>';
+  content.querySelectorAll('.progress-fill').forEach(el => {
+    const w = el.style.width; el.style.width = '0';
+    requestAnimationFrame(() => requestAnimationFrame(() => { el.style.width = w; }));
+  });
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closePopup() {
+  overlay.classList.remove('open');
+  document.body.style.overflow = '';
+  document.querySelectorAll('.node-card.active').forEach(c => c.classList.remove('active'));
+}
+overlay.addEventListener('click', e => { if (e.target === overlay) closePopup(); });
+document.getElementById('popup-close').addEventListener('click', closePopup);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePopup(); });
+
+/* =====================================================================
+   MOUNT & DRAW
+===================================================================== */
+document.getElementById('chart-title').textContent    = ORG_DATA.title    || 'Sơ đồ tổ chức';
+document.getElementById('chart-subtitle').textContent = ORG_DATA.subtitle || '';
+
+const treeRoot = document.getElementById('tree-root');
+const svgEl    = document.getElementById('connector-svg');
+
+/* Wrap root col in a centering level */
+const topLevel = document.createElement('div');
+topLevel.className = 'level';
+const rootCol = buildCol(ORG_DATA.root, 1);
+topLevel.appendChild(rootCol);
+treeRoot.insertBefore(topLevel, svgEl);
+
+/* Wait for full layout then draw SVG connectors */
+/* Use double rAF + small timeout to ensure fonts & images don't shift layout */
+function safeDraw() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      /* Expand SVG to match container */
+      const tRect = treeRoot.getBoundingClientRect();
+      svgEl.setAttribute('viewBox', `0 0 ${tRect.width} ${tRect.height}`);
+      svgEl.style.width  = tRect.width  + 'px';
+      svgEl.style.height = tRect.height + 'px';
+      drawConnectors(rootCol, svgEl);
+    });
+  });
+}
+
+safeDraw();
+
+/* Redraw on resize */
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(safeDraw, 120);
+});
+</script>
+</body>
+</html>
