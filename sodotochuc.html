@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -38,19 +37,64 @@ p.chart-subtitle {
 }
 
 /* ═══════════════════════════════
+   SCROLL WRAPPER — cho phép scroll ngang
+═══════════════════════════════ */
+#tree-scroll-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 160px); /* scroll dọc trong khung */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #c8c6c2 transparent;
+  padding-bottom: 4px;
+  cursor: grab;
+  user-select: none;
+}
+#tree-scroll-wrapper.dragging {
+  cursor: grabbing;
+}
+#tree-scroll-wrapper::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+#tree-scroll-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+#tree-scroll-wrapper::-webkit-scrollbar-thumb {
+  background: #c8c6c2;
+  border-radius: 3px;
+}
+
+/* Hint khi nội dung bị cắt */
+#scroll-hint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: -36px;
+  margin-bottom: 28px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  user-select: none;
+}
+#scroll-hint.visible { opacity: 1; }
+
+/* ═══════════════════════════════
    TREE LAYOUT
-   ─────────────────────────────
-   Cách tiếp cận mới: toàn bộ cây
-   nằm trong một container có
-   position:relative. Đường kẻ được
-   vẽ bằng SVG tuyệt đối bên trên.
 ═══════════════════════════════ */
 
 #tree-root {
   position: relative;
-  display: inline-block; /* co lại bằng content */
-  left: 50%;
-  transform: translateX(-50%);
+  display: inline-block;
+  /* Không dùng left/transform nữa — căn giữa bằng wrapper */
+  padding: 0 40px 20px; /* padding ngang để node đầu/cuối không sát mép */
+}
+
+/* Wrapper bên trong để căn giữa khi đủ rộng */
+#tree-inner {
+  display: flex;
+  justify-content: center;
+  min-width: max-content; /* không bị wrap */
 }
 
 /* Mỗi "level" là flex row */
@@ -68,7 +112,7 @@ p.chart-subtitle {
   flex-direction: column;
   align-items: center;
   position: relative;
-  padding: 0 10px; /* khoảng cách ngang giữa các col */
+  padding: 0 10px;
 }
 
 /* NODE CARD */
@@ -84,7 +128,7 @@ p.chart-subtitle {
   transition: background 0.18s, transform 0.18s;
   animation: fadeUp 0.4s ease both;
   min-width: 88px;
-  z-index: 2; /* above SVG lines */
+  z-index: 2;
 }
 .node-card:hover  { background: rgba(0,0,0,0.045); transform: translateY(-3px); }
 .node-card.active { background: rgba(0,0,0,0.07); }
@@ -112,7 +156,6 @@ p.chart-subtitle {
 .node-name  { font-size: 12px; font-weight: 600; text-align: center; max-width: 90px; line-height: 1.3; color: var(--text-primary); }
 .node-title { font-size: 10px; text-align: center; max-width: 90px; line-height: 1.3; color: var(--text-secondary); }
 
-/* Smaller for depth 3+ */
 .col.d3 .avatar, .col.d4 .avatar { width: 50px; height: 50px; }
 .col.d3 .avatar svg, .col.d4 .avatar svg { width: 34px; height: 34px; }
 .col.d3 .node-name, .col.d4 .node-name { font-size: 11px; max-width: 76px; }
@@ -134,7 +177,6 @@ p.chart-subtitle {
   stroke-linecap: round;
 }
 
-/* Animations */
 @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
 
 /* ═══════════════════════════════
@@ -163,9 +205,7 @@ p.chart-subtitle {
 #popup-banner {
   height: 100px; border-radius: 22px 22px 0 0;
   position: relative; flex-shrink: 0;
-  /* NO overflow:hidden — avatar phải nhô ra ngoài */
 }
-/* clip chỉ áp dụng cho phần nền, không clip avatar */
 #popup-banner-bg {
   position: absolute; inset: 0;
   border-radius: 22px 22px 0 0;
@@ -256,10 +296,15 @@ p.chart-subtitle {
 
 <h1 class="chart-title"  id="chart-title">Sơ đồ tổ chức</h1>
 <p  class="chart-subtitle" id="chart-subtitle"></p>
+<div id="scroll-hint">← Vuốt ngang để xem thêm →</div>
 
-<div id="tree-root">
-  <!-- filled by JS -->
-  <svg id="connector-svg" aria-hidden="true"></svg>
+<!-- Wrapper scroll ngang -->
+<div id="tree-scroll-wrapper">
+  <div id="tree-inner">
+    <div id="tree-root">
+      <svg id="connector-svg" aria-hidden="true"></svg>
+    </div>
+  </div>
 </div>
 
 <!-- Popup -->
@@ -283,10 +328,6 @@ p.chart-subtitle {
 </div>
 
 <script>
-/* =====================================================================
-   DỮ LIỆU — chỉnh sửa ở đây
-   photo: URL ảnh thật (ưu tiên). Nếu không có thì dùng gender: "male"|"female"
-===================================================================== */
 const ORG_DATA = {
   title:    "Sơ đồ tổ chức công ty",
   subtitle: "Cập nhật Q2 · 2025",
@@ -473,16 +514,13 @@ function initColor(name) {
 }
 
 /* =====================================================================
-   BUILD DOM TREE (không có SVG connector, chỉ layout)
-   Mỗi node trả về { el (col div), cardEl }
-   el.cardEl dùng để đo vị trí sau khi layout xong
+   BUILD DOM TREE
 ===================================================================== */
 function buildCol(node, depth) {
   const col = document.createElement('div');
   col.className = `col d${depth}`;
   col.dataset.id = node.id;
 
-  /* --- card --- */
   const card = document.createElement('div');
   card.className = 'node-card';
   const av = document.createElement('div');
@@ -499,9 +537,8 @@ function buildCol(node, depth) {
     openPopup(node);
   });
   col.appendChild(card);
-  col._card = card; /* reference for measuring */
+  col._card = card;
 
-  /* --- children row --- */
   if (node.children && node.children.length) {
     const row = document.createElement('div');
     row.className = 'level';
@@ -516,12 +553,7 @@ function buildCol(node, depth) {
 }
 
 /* =====================================================================
-   DRAW CONNECTORS via SVG — called after layout is complete
-   Strategy:
-     For each parent node that has children:
-       1. Vertical line: bottom-center of parent card → midpoint Y
-       2. Horizontal line: from first child center X → last child center X at midpoint Y
-       3. Vertical drops: from midpoint Y → top-center of each child card
+   DRAW CONNECTORS
 ===================================================================== */
 function drawConnectors(rootEl, svgEl) {
   const svgRect = svgEl.getBoundingClientRect();
@@ -529,55 +561,39 @@ function drawConnectors(rootEl, svgEl) {
 
   function toSvg(domRect) {
     return {
-      x: domRect.left - svgRect.left + domRect.width  / 2,
-      y: domRect.top  - svgRect.top  + domRect.height / 2,
+      cx:     domRect.left - svgRect.left + domRect.width / 2,
       top:    domRect.top  - svgRect.top,
       bottom: domRect.top  - svgRect.top  + domRect.height,
-      left:   domRect.left - svgRect.left,
-      right:  domRect.left - svgRect.left + domRect.width,
-      cx:     domRect.left - svgRect.left + domRect.width / 2,
-      cy:     domRect.top  - svgRect.top  + domRect.height / 2,
     };
   }
 
   function walk(colEl) {
     if (!colEl._childRow) return;
 
-    const parentCard = colEl._card;
-    const pRect = toSvg(parentCard.getBoundingClientRect());
-
-    /* collect child cards */
+    const pRect = toSvg(colEl._card.getBoundingClientRect());
     const childCols = Array.from(colEl._childRow.children);
     const childRects = childCols.map(cc => toSvg(cc._card.getBoundingClientRect()));
 
-    const GAP = 20; /* vertical gap between parent bottom and horizontal bar */
-    const parentBottom = pRect.bottom;
-    const midY = parentBottom + GAP;
+    const GAP = 20;
+    const midY = pRect.bottom + GAP;
 
-    /* 1. Vertical drop from parent */
-    paths.push(`M ${pRect.cx} ${parentBottom} L ${pRect.cx} ${midY}`);
+    paths.push(`M ${pRect.cx} ${pRect.bottom} L ${pRect.cx} ${midY}`);
 
     if (childCols.length === 1) {
-      /* straight line to single child */
-      const cR = childRects[0];
-      paths.push(`M ${cR.cx} ${midY} L ${cR.cx} ${cR.top}`);
+      paths.push(`M ${childRects[0].cx} ${midY} L ${childRects[0].cx} ${childRects[0].top}`);
     } else {
-      /* horizontal bar */
       const leftX  = childRects[0].cx;
       const rightX = childRects[childRects.length - 1].cx;
       paths.push(`M ${leftX} ${midY} L ${rightX} ${midY}`);
-      /* vertical drops to each child */
       childRects.forEach(cR => {
         paths.push(`M ${cR.cx} ${midY} L ${cR.cx} ${cR.top}`);
       });
     }
 
-    /* recurse */
     childCols.forEach(cc => walk(cc));
   }
 
   walk(rootEl);
-
   svgEl.innerHTML = `<path d="${paths.join(' ')}" stroke="var(--line)" stroke-width="2" fill="none" stroke-linecap="round"/>`;
 }
 
@@ -625,36 +641,76 @@ document.getElementById('chart-subtitle').textContent = ORG_DATA.subtitle || '';
 const treeRoot = document.getElementById('tree-root');
 const svgEl    = document.getElementById('connector-svg');
 
-/* Wrap root col in a centering level */
 const topLevel = document.createElement('div');
 topLevel.className = 'level';
 const rootCol = buildCol(ORG_DATA.root, 1);
 topLevel.appendChild(rootCol);
 treeRoot.insertBefore(topLevel, svgEl);
 
-/* Wait for full layout then draw SVG connectors */
-/* Use double rAF + small timeout to ensure fonts & images don't shift layout */
 function safeDraw() {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      /* Expand SVG to match container */
       const tRect = treeRoot.getBoundingClientRect();
       svgEl.setAttribute('viewBox', `0 0 ${tRect.width} ${tRect.height}`);
       svgEl.style.width  = tRect.width  + 'px';
       svgEl.style.height = tRect.height + 'px';
       drawConnectors(rootCol, svgEl);
+
+      /* Hiện hint scroll nếu nội dung rộng hơn viewport */
+      const wrapper = document.getElementById('tree-scroll-wrapper');
+      const hint    = document.getElementById('scroll-hint');
+      if (wrapper.scrollWidth > wrapper.clientWidth) {
+        hint.classList.add('visible');
+        /* Ẩn hint sau khi user đã scroll */
+        wrapper.addEventListener('scroll', () => hint.classList.remove('visible'), { once: true });
+      }
     });
   });
 }
 
 safeDraw();
 
-/* Redraw on resize */
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(safeDraw, 120);
 });
+
+/* =====================================================================
+   DRAG TO SCROLL (chuột kéo ngang + dọc)
+===================================================================== */
+(function() {
+  const wrapper = document.getElementById('tree-scroll-wrapper');
+  let isDown = false, startX, startY, scrollLeft, scrollTop;
+
+  wrapper.addEventListener('mousedown', e => {
+    if (e.target.closest('.node-card')) return;
+    isDown = true;
+    wrapper.classList.add('dragging');
+    startX     = e.pageX - wrapper.offsetLeft;
+    startY     = e.pageY - wrapper.offsetTop;
+    scrollLeft = wrapper.scrollLeft;
+    scrollTop  = wrapper.scrollTop;
+    e.preventDefault();
+  });
+
+  const endDrag = () => {
+    if (!isDown) return;
+    isDown = false;
+    wrapper.classList.remove('dragging');
+  };
+  window.addEventListener('mouseup',    endDrag);
+  window.addEventListener('mouseleave', endDrag);
+
+  window.addEventListener('mousemove', e => {
+    if (!isDown) return;
+    e.preventDefault();
+    const x = e.pageX - wrapper.offsetLeft;
+    const y = e.pageY - wrapper.offsetTop;
+    wrapper.scrollLeft = scrollLeft - (x - startX);
+    wrapper.scrollTop  = scrollTop  - (y - startY);
+  });
+})();
 </script>
 </body>
 </html>
